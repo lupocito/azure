@@ -188,7 +188,7 @@ options:
     is_hns_enabled:
         description:
             - Enable Account Hierarchical Namespace (Azure Data Lake Storage Gen2).
-            - Only allowed when I(kind=BlobStorage) is selected.
+            - Only allowed when I(kind=StorageV2), I(kind=BlobStorage) or I(kind=BlockBlobStorage) is selected.
             - Default value is C(False).
         type: bool
 
@@ -301,6 +301,12 @@ state:
             returned: always
             type: str
             sample: "/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/resourceGroups/myResourceGroup/providers/Microsoft.Storage/storageAccounts/clh0003"
+        is_hns_enabled:
+            description:
+                - Hierarchical Namespace is enabled.
+            returned: always
+            type: bool
+            sample: False
         location:
             description:
                 - Valid Azure location. Defaults to location of the resource group.
@@ -532,9 +538,9 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             self.fail("Error: storage account {0} has not completed provisioning. State is {1}. Expecting state "
                       "to be {2}.".format(self.name, self.account_dict['provisioning_state'], AZURE_SUCCESS_STATE))
 
-        if self.is_hns_enabled and self.kind != 'BlobStorage':
+        if self.is_hns_enabled and self.kind not in ['StorageV2', 'BlobStorage', 'BlockBlobStorage']:
             self.fail("Parameter error: Hierarchical Namespace only allowed when "
-                      "kind is 'BlobStorage'")
+                      "kind is 'StorageV2', 'BlobStorage' or 'BlockBlobStorage'")
 
         if self.account_dict is not None:
             self.results['state'] = self.account_dict

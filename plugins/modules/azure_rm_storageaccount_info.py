@@ -114,6 +114,12 @@ storageaccounts:
             type: str
             sample: "/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/resourceGroups/myResourceGroup/providers/Microsoft.Storage/storageAccounts/t
                      estaccount001"
+        is_hns_enabled:
+            description:
+                - Hierarchical Namespace is enabled.
+            returned: always
+            type: bool
+            sample: False
         name:
             description:
                 - Name of the storage account to update or create.
