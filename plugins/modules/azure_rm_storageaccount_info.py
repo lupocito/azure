@@ -528,7 +528,8 @@ class AzureRMStorageAccountInfo(AzureRMModuleBase):
             primary_location=account_obj.primary_location,
             https_only=account_obj.enable_https_traffic_only,
             minimum_tls_version=account_obj.minimum_tls_version,
-            allow_blob_public_access=account_obj.allow_blob_public_access
+            allow_blob_public_access=account_obj.allow_blob_public_access,
+            is_hns_enabled=account_obj.is_hns_enabled
         )
 
         id_dict = self.parse_resource_to_dict(account_obj.id)
