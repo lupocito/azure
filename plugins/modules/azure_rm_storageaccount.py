@@ -185,6 +185,12 @@ options:
                     - A list of headers allowed to be part of the cross-origin request.
                 type: list
                 required: true
+    is_hns_enabled:
+        description:
+            - Enable Account Hierarchical Namespace (Azure Data Lake Storage Gen2).
+            - Only allowed when I(kind=BlobStorage) is selected.
+            - Default value is C(False).
+        type: bool
 
 extends_documentation_fragment:
     - azure.azcollection.azure
@@ -465,7 +471,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             minimum_tls_version=dict(type='str', choices=['TLS1_0', 'TLS1_1', 'TLS1_2']),
             allow_blob_public_access=dict(type='bool'),
             network_acls=dict(type='dict'),
-            blob_cors=dict(type='list', options=cors_rule_spec, elements='dict')
+            blob_cors=dict(type='list', options=cors_rule_spec, elements='dict'),
+            is_hns_enabled=dict(type='bool', default=False)
         )
 
         self.results = dict(
@@ -489,6 +496,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         self.allow_blob_public_access = None
         self.network_acls = None
         self.blob_cors = None
+        self.is_hns_enabled = None
 
         super(AzureRMStorageAccount, self).__init__(self.module_arg_spec,
                                                     supports_check_mode=True)
@@ -521,6 +529,10 @@ class AzureRMStorageAccount(AzureRMModuleBase):
            self.account_dict['provisioning_state'] != AZURE_SUCCESS_STATE:
             self.fail("Error: storage account {0} has not completed provisioning. State is {1}. Expecting state "
                       "to be {2}.".format(self.name, self.account_dict['provisioning_state'], AZURE_SUCCESS_STATE))
+
+        if self.is_hns_enabled and self.kind != 'BlobStorage':
+            self.fail("Parameter error: Hierarchical Namespace only allowed when "
+                      "kind is 'BlobStorage'")
 
         if self.account_dict is not None:
             self.results['state'] = self.account_dict
@@ -587,7 +599,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             https_only=account_obj.enable_https_traffic_only,
             minimum_tls_version=account_obj.minimum_tls_version,
             allow_blob_public_access=account_obj.allow_blob_public_access,
-            network_acls=account_obj.network_rule_set
+            network_acls=account_obj.network_rule_set,
+            is_hns_enabled=account_obj.is_hns_enabled
         )
         account_dict['custom_domain'] = None
         if account_obj.custom_domain:
@@ -793,6 +806,10 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             if not self.check_mode:
                 self.set_blob_cors()
 
+        if self.account_dict['is_hns_enabled'] != self.is_hns_enabled:
+            self.fail("Failed to update BlobStorage. "
+                      "Hierarchical Namespace only can be set on creation time.")
+
     def create_account(self):
         self.log("Creating account {0}".format(self.name))
 
@@ -844,7 +861,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
                                                                         enable_https_traffic_only=self.https_only,
                                                                         minimum_tls_version=self.minimum_tls_version,
                                                                         allow_blob_public_access=self.allow_blob_public_access,
-                                                                        access_tier=self.access_tier)
+                                                                        access_tier=self.access_tier,
+                                                                        is_hns_enabled=self.is_hns_enabled)
         self.log(str(parameters))
         try:
             poller = self.storage_client.storage_accounts.create(self.resource_group, self.name, parameters)
