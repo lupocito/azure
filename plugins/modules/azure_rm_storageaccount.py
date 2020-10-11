@@ -419,6 +419,7 @@ except ImportError:
     pass
 
 import copy
+import re
 from ansible_collections.azure.azcollection.plugins.module_utils.azure_rm_common import AZURE_SUCCESS_STATE, AzureRMModuleBase
 from ansible.module_utils._text import to_native
 
@@ -511,8 +512,9 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             # Set default location
             self.location = resource_group.location
 
-        if len(self.name) < 3 or len(self.name) > 24:
-            self.fail("Parameter error: name length must be between 3 and 24 characters.")
+        if not re.search(r"^[0-9a-z]{3,24}$", self.name):
+            self.fail("Parameter error: Storage account names must be between 3 and 24 characters "
+                      "in length and use numbers and lower-case letters only.")
 
         if self.custom_domain:
             if self.custom_domain.get('name', None) is None:
@@ -805,7 +807,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             self.results['changed'] = True
             if not self.check_mode:
                 self.set_blob_cors()
-
+                
         if self.account_dict['is_hns_enabled'] != self.is_hns_enabled:
             self.fail("Failed to update BlobStorage. "
                       "Hierarchical Namespace only can be set on creation time.")
