@@ -194,6 +194,55 @@
            #- output.storageaccounts[0].network_acls.default_action == "Deny"
            #- output.storageaccounts[0].network_acls.ip_rules | length == 1
 
+ - name: Test invalid kind when hns is enabled
+   azure_rm_storageaccount:
+       resource_group: "{{ resource_group }}"
+       name: "{{ storage_account }}"
+       kind: Storage
+       account_type: Standard_LRS
+       is_hns_enabled: true
+   register: invalid_kind_hns
+   ignore_errors: true
+
+ - name: Assert task failed
+   assert:
+       that: invalid_kind_hns['failed'] is true
+
+ - name: Test create storage with hierarchical namespace enabled
+   azure_rm_storageaccount:
+       resource_group: "{{ resource_group }}"
+       name: "{{ storage_account }}"
+       kind: StorageV2
+       account_type: Standard_LRS
+       is_hns_enabled: true
+   register: valid_hns
+   ignore_errors: true
+
+ - name: Assert task creation successful
+   assert:
+       that:
+           - valid_hns['failed'] is false
+           - valid_hns['state']['is_hns_enabled'] is true
+           - valid_hns['state']['sku_name'] == 'Standard_LRS'
+
+ - name: Test create storage with hierarchical namespace enabled (idempotence)
+   azure_rm_storageaccount:
+       resource_group: "{{ resource_group }}"
+       name: "{{ storage_account }}"
+       kind: StorageV2
+       account_type: Standard_LRS
+       is_hns_enabled: true
+   register: valid_hns_idempotence
+   ignore_errors: true
+
+ - name: Assert hns creation idempotence
+   assert:
+       that:
+           - not valid_hns_idempotence.changed
+           - valid_hns_idempotence['failed'] is false
+           - valid_hns_idempotence['state']['is_hns_enabled'] is true
+           - valid_hns_idempotence['state']['sku_name'] == 'Standard_LRS'
+
  - name: Gather facts
    azure_rm_storageaccount_info:
        resource_group: "{{ resource_group }}"
