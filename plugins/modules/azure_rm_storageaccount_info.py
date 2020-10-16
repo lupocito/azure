@@ -590,6 +590,9 @@ class AzureRMStorageAccountInfo(AzureRMModuleBase):
                 exposed_headers=to_native(x.exposed_headers),
                 allowed_headers=to_native(x.allowed_headers)
             ) for x in blob_service_props.cors.cors_rules]
+        if blob_service_props:
+            account_dict['delete_retention_policy']['enabled'] = blob_service_props.delete_retention_policy.enabled
+            account_dict['delete_retention_policy']['days'] = blob_service_props.delete_retention_policy.days
         return account_dict
 
     def format_endpoint_dict(self, name, key, endpoint, storagetype, protocol='https'):

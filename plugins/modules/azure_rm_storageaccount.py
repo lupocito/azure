@@ -185,6 +185,10 @@ options:
                     - A list of headers allowed to be part of the cross-origin request.
                 type: list
                 required: true
+    blob_versioning_days:
+        description:
+            - XXX
+        type: int
 
 extends_documentation_fragment:
     - azure.azcollection.azure
@@ -465,7 +469,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             minimum_tls_version=dict(type='str', choices=['TLS1_0', 'TLS1_1', 'TLS1_2']),
             allow_blob_public_access=dict(type='bool'),
             network_acls=dict(type='dict'),
-            blob_cors=dict(type='list', options=cors_rule_spec, elements='dict')
+            blob_cors=dict(type='list', options=cors_rule_spec, elements='dict'),
+            blob_versioning_days=dict(type='int')
         )
 
         self.results = dict(
@@ -489,6 +494,9 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         self.allow_blob_public_access = None
         self.network_acls = None
         self.blob_cors = None
+        self.blob_cors_model = None
+        self.blob_versioning_days = None
+        self.blob_versioning_model = None
 
         super(AzureRMStorageAccount, self).__init__(self.module_arg_spec,
                                                     supports_check_mode=True)
@@ -587,7 +595,9 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             https_only=account_obj.enable_https_traffic_only,
             minimum_tls_version=account_obj.minimum_tls_version,
             allow_blob_public_access=account_obj.allow_blob_public_access,
-            network_acls=account_obj.network_rule_set
+            network_acls=account_obj.network_rule_set,
+            delete_retention_policy=dict(enabled=blob_service_props.delete_retention_policy.enabled,
+                                         days=blob_service_props.delete_retention_policy.days)
         )
         account_dict['custom_domain'] = None
         if account_obj.custom_domain:
@@ -788,10 +798,21 @@ class AzureRMStorageAccount(AzureRMModuleBase):
                 except Exception as exc:
                     self.fail("Failed to update tags: {0}".format(str(exc)))
 
-        if self.blob_cors and not compare_cors(self.account_dict.get('blob_cors', []), self.blob_cors):
+        if self.blob_cors is not None and not compare_cors(self.account_dict.get('blob_cors', []), self.blob_cors):
             self.results['changed'] = True
             if not self.check_mode:
-                self.set_blob_cors()
+                self.blob_cors_model = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
+
+        if self.blob_versioning_days is not None and self.blob_versioning_days >= 0 and self.blob_versioning_days <= 365:
+            self.results['changed'] = True
+            self.account_dict['delete_retention_policy']['enabled'] = True if self.blob_versioning_days != 0 else False
+            self.account_dict['delete_retention_policy']['days'] = self.blob_versioning_days
+            self.blob_versioning_model = self.storage_models.DeleteRetentionPolicy(
+                enabled=True if self.blob_versioning_days != 0 else False,
+                days=self.blob_versioning_days if self.blob_versioning_days != 0 else None)
+
+        if self.blob_cors_model is not None or self.blob_versioning_model is not None:
+            self.set_blob_service_properties()
 
     def create_account(self):
         self.log("Creating account {0}".format(self.name))
@@ -855,7 +876,14 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         if self.network_acls:
             self.set_network_acls()
         if self.blob_cors:
-            self.set_blob_cors()
+            self.blob_cors_model = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
+        if self.blob_versioning_days is not None and self.blob_versioning_days >= 0 and self.blob_versioning_days <= 365:
+            self.blob_versioning_model = self.storage_models.DeleteRetentionPolicy(
+                enabled=True if self.blob_versioning_days != 0 else False,
+                days=self.blob_versioning_days if self.blob_versioning_days != 0 else None)
+        if self.blob_cors_model is not None or self.blob_versioning_model is not None:
+            self.set_blob_service_properties()
+
         # the poller doesn't actually return anything
         return self.get_account()
 
@@ -892,14 +920,17 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             return True
         return False
 
-    def set_blob_cors(self):
+    def set_blob_service_properties(self):
         try:
-            cors_rules = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
             self.storage_client.blob_services.set_service_properties(self.resource_group,
                                                                      self.name,
-                                                                     self.storage_models.BlobServiceProperties(cors=cors_rules))
+                                                                     self.storage_models.BlobServiceProperties(
+                                                                         cors=self.blob_cors_model,
+                                                                         delete_retention_policy=self.blob_versioning_model
+                                                                     )
+                                                                    )
         except Exception as exc:
-            self.fail("Failed to set CORS rules: {0}".format(str(exc)))
+            self.fail("Failed to set Blob Service Properties: {0}".format(str(exc)))
 
     def set_network_acls(self):
         try:
