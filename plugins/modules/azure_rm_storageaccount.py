@@ -489,6 +489,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         self.allow_blob_public_access = None
         self.network_acls = None
         self.blob_cors = None
+        self.storage_account_update_parameters = self.storage_models.StorageAccountUpdateParameters()
 
         super(AzureRMStorageAccount, self).__init__(self.module_arg_spec,
                                                     supports_check_mode=True)
@@ -642,13 +643,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
 
     def update_network_rule_set(self):
         if not self.check_mode:
-            try:
-                parameters = self.storage_models.StorageAccountUpdateParameters(network_rule_set=self.network_acls)
-                self.storage_client.storage_accounts.update(self.resource_group,
-                                                            self.name,
-                                                            parameters)
-            except Exception as exc:
-                self.fail("Failed to update account type: {0}".format(str(exc)))
+            self.storage_account_update_parameters.network_rule_set=self.network_acls
 
     def sort_list_of_dicts(self, rule_set, dict_key):
         return sorted(rule_set, key=lambda i: i[dict_key])
@@ -691,38 +686,20 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             self.results['changed'] = True
             self.account_dict['https_only'] = self.https_only
             if not self.check_mode:
-                try:
-                    parameters = self.storage_models.StorageAccountUpdateParameters(enable_https_traffic_only=self.https_only)
-                    self.storage_client.storage_accounts.update(self.resource_group,
-                                                                self.name,
-                                                                parameters)
-                except Exception as exc:
-                    self.fail("Failed to update account type: {0}".format(str(exc)))
+                self.storage_account_update_parameters.enable_https_traffic_only=self.https_only
 
         if self.minimum_tls_version is not None and self.minimum_tls_version != self.account_dict.get('minimum_tls_version'):
             self.results['changed'] = True
             self.account_dict['minimum_tls_version'] = self.minimum_tls_version
             if not self.check_mode:
-                try:
-                    parameters = self.storage_models.StorageAccountUpdateParameters(minimum_tls_version=self.minimum_tls_version)
-                    self.storage_client.storage_accounts.update(self.resource_group,
-                                                                self.name,
-                                                                parameters)
-                except Exception as exc:
-                    self.fail("Failed to update account type: {0}".format(str(exc)))
+                self.storage_account_update_parameters.minimum_tls_version=self.minimum_tls_version
 
         if self.allow_blob_public_access is not None:
             if bool(self.allow_blob_public_access) != bool(self.account_dict.get('allow_blob_public_access')):
                 self.results['changed'] = True
                 self.account_dict['allow_blob_public_access'] = self.allow_blob_public_access
                 if not self.check_mode:
-                    try:
-                        parameters = self.storage_models.StorageAccountUpdateParameters(allow_blob_public_access=self.allow_blob_public_access)
-                        self.storage_client.storage_accounts.update(self.resource_group,
-                                                                    self.name,
-                                                                    parameters)
-                    except Exception as exc:
-                        self.fail("Failed to update account type: {0}".format(str(exc)))
+                    self.storage_account_update_parameters.allow_blob_public_access=self.allow_blob_public_access
 
         if self.account_type:
             if self.account_type != self.account_dict['sku_name']:
@@ -740,17 +717,11 @@ class AzureRMStorageAccount(AzureRMModuleBase):
 
                 if self.results['changed'] and not self.check_mode:
                     # Perform the update. The API only allows changing one attribute per call.
-                    try:
-                        self.log("sku_name: %s" % self.account_dict['sku_name'])
-                        self.log("sku_tier: %s" % self.account_dict['sku_tier'])
-                        sku = self.storage_models.Sku(name=SkuName(self.account_dict['sku_name']))
-                        sku.tier = self.storage_models.SkuTier(self.account_dict['sku_tier'])
-                        parameters = self.storage_models.StorageAccountUpdateParameters(sku=sku)
-                        self.storage_client.storage_accounts.update(self.resource_group,
-                                                                    self.name,
-                                                                    parameters)
-                    except Exception as exc:
-                        self.fail("Failed to update account type: {0}".format(str(exc)))
+                    self.log("sku_name: %s" % self.account_dict['sku_name'])
+                    self.log("sku_tier: %s" % self.account_dict['sku_tier'])
+                    sku = self.storage_models.Sku(name=SkuName(self.account_dict['sku_name']))
+                    sku.tier = self.storage_models.SkuTier(self.account_dict['sku_tier'])
+                    self.storage_account_update_parameters.sku=sku
 
         if self.custom_domain:
             if not self.account_dict['custom_domain'] or self.account_dict['custom_domain'] != self.custom_domain:
@@ -760,11 +731,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             if self.results['changed'] and not self.check_mode:
                 new_domain = self.storage_models.CustomDomain(name=self.custom_domain['name'],
                                                               use_sub_domain=self.custom_domain['use_sub_domain'])
-                parameters = self.storage_models.StorageAccountUpdateParameters(custom_domain=new_domain)
-                try:
-                    self.storage_client.storage_accounts.update(self.resource_group, self.name, parameters)
-                except Exception as exc:
-                    self.fail("Failed to update custom domain: {0}".format(str(exc)))
+                self.storage_account_update_parameters.custom_domain=new_domain
 
         if self.access_tier:
             if not self.account_dict['access_tier'] or self.account_dict['access_tier'] != self.access_tier:
@@ -772,21 +739,18 @@ class AzureRMStorageAccount(AzureRMModuleBase):
                 self.account_dict['access_tier'] = self.access_tier
 
             if self.results['changed'] and not self.check_mode:
-                parameters = self.storage_models.StorageAccountUpdateParameters(access_tier=self.access_tier)
-                try:
-                    self.storage_client.storage_accounts.update(self.resource_group, self.name, parameters)
-                except Exception as exc:
-                    self.fail("Failed to update access tier: {0}".format(str(exc)))
+                self.storage_account_update_parameters.access_tier=self.access_tier
 
         update_tags, self.account_dict['tags'] = self.update_tags(self.account_dict['tags'])
         if update_tags:
             self.results['changed'] = True
             if not self.check_mode:
-                parameters = self.storage_models.StorageAccountUpdateParameters(tags=self.account_dict['tags'])
-                try:
-                    self.storage_client.storage_accounts.update(self.resource_group, self.name, parameters)
-                except Exception as exc:
-                    self.fail("Failed to update tags: {0}".format(str(exc)))
+                self.storage_account_update_parameters.tags=self.account_dict['tags']
+
+        try:
+            self.storage_client.storage_accounts.update(self.resource_group, self.name, self.storage_account_update_parameters)
+        except Exception as exc:
+            self.fail("Failed to update storage: {0}".format(str(exc)))
 
         if self.blob_cors and not compare_cors(self.account_dict.get('blob_cors', []), self.blob_cors):
             self.results['changed'] = True
