@@ -185,10 +185,14 @@ options:
                     - A list of headers allowed to be part of the cross-origin request.
                 type: list
                 required: true
-    blob_versioning_days:
+    blob_retention_policy:
         description:
             - XXX
         type: int
+    blob_versioning:
+        description:
+            - XXX
+        type: bool
 
 extends_documentation_fragment:
     - azure.azcollection.azure
@@ -470,7 +474,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             allow_blob_public_access=dict(type='bool'),
             network_acls=dict(type='dict'),
             blob_cors=dict(type='list', options=cors_rule_spec, elements='dict'),
-            blob_versioning_days=dict(type='int')
+            blob_retention_policy=dict(type='int'),
+            blob_versioning=dict(type='bool')
         )
 
         self.results = dict(
@@ -494,9 +499,9 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         self.allow_blob_public_access = None
         self.network_acls = None
         self.blob_cors = None
-        self.blob_cors_model = None
-        self.blob_versioning_days = None
-        self.blob_versioning_model = None
+        self.blob_retention_policy = None
+        self.blob_versioning = None
+        self.storage_account_blob_service_properties = self.storage_models.BlobServiceProperties()
 
         super(AzureRMStorageAccount, self).__init__(self.module_arg_spec,
                                                     supports_check_mode=True)
@@ -597,7 +602,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             allow_blob_public_access=account_obj.allow_blob_public_access,
             network_acls=account_obj.network_rule_set,
             delete_retention_policy=dict(enabled=blob_service_props.delete_retention_policy.enabled,
-                                         days=blob_service_props.delete_retention_policy.days)
+                                         days=blob_service_props.delete_retention_policy.days),
+            versioning=blob_service_props.is_versioning_enabled
         )
         account_dict['custom_domain'] = None
         if account_obj.custom_domain:
@@ -801,17 +807,24 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         if self.blob_cors is not None and not compare_cors(self.account_dict.get('blob_cors', []), self.blob_cors):
             self.results['changed'] = True
             if not self.check_mode:
-                self.blob_cors_model = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
+                cors_rules = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
+                self.storage_account_blob_service_properties.cors=cors_rules
 
-        if self.blob_versioning_days is not None and self.blob_versioning_days >= 0 and self.blob_versioning_days <= 365:
+        if self.blob_retention_policy is not None and self.blob_retention_policy >= 0 and self.blob_retention_policy <= 365:
             self.results['changed'] = True
-            self.account_dict['delete_retention_policy']['enabled'] = True if self.blob_versioning_days != 0 else False
-            self.account_dict['delete_retention_policy']['days'] = self.blob_versioning_days
-            self.blob_versioning_model = self.storage_models.DeleteRetentionPolicy(
-                enabled=True if self.blob_versioning_days != 0 else False,
-                days=self.blob_versioning_days if self.blob_versioning_days != 0 else None)
+            self.account_dict['delete_retention_policy']['enabled'] = True if self.blob_retention_policy != 0 else False
+            self.account_dict['delete_retention_policy']['days'] = self.blob_retention_policy
+            retention_policy = self.storage_models.DeleteRetentionPolicy(
+                enabled=True if self.blob_retention_policy != 0 else False,
+                days=self.blob_retention_policy if self.blob_retention_policy != 0 else None)
+            self.storage_account_blob_service_properties.delete_retention_policy=retention_policy
 
-        if self.blob_cors_model is not None or self.blob_versioning_model is not None:
+        if self.blob_versioning is not None:
+            self.results['changed'] = True
+            self.account_dict['versioning'] = self.blob_versioning
+            self.storage_account_blob_service_properties.is_versioning_enabled=self.blob_versioning
+
+        if self.storage_account_blob_service_properties.serialize() != dict():
             self.set_blob_service_properties()
 
     def create_account(self):
@@ -876,12 +889,17 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         if self.network_acls:
             self.set_network_acls()
         if self.blob_cors:
-            self.blob_cors_model = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
-        if self.blob_versioning_days is not None and self.blob_versioning_days >= 0 and self.blob_versioning_days <= 365:
-            self.blob_versioning_model = self.storage_models.DeleteRetentionPolicy(
-                enabled=True if self.blob_versioning_days != 0 else False,
-                days=self.blob_versioning_days if self.blob_versioning_days != 0 else None)
-        if self.blob_cors_model is not None or self.blob_versioning_model is not None:
+            cors_rules = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
+            self.storage_account_blob_service_properties.cors=cors_rules
+        if self.blob_retention_policy is not None and self.blob_retention_policy >= 0 and self.blob_retention_policy <= 365:
+            retention_policy = self.storage_models.DeleteRetentionPolicy(
+                enabled=True if self.blob_retention_policy != 0 else False,
+                days=self.blob_retention_policy if self.blob_retention_policy != 0 else None)
+            self.storage_account_blob_service_properties.delete_retention_policy=retention_policy
+        if self.blob_versioning is not None:
+            self.storage_account_blob_service_properties.is_versioning_enabled=self.blob_versioning
+
+        if self.storage_account_blob_service_properties.serialize() != dict():
             self.set_blob_service_properties()
 
         # the poller doesn't actually return anything
@@ -924,10 +942,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         try:
             self.storage_client.blob_services.set_service_properties(self.resource_group,
                                                                      self.name,
-                                                                     self.storage_models.BlobServiceProperties(
-                                                                         cors=self.blob_cors_model,
-                                                                         delete_retention_policy=self.blob_versioning_model
-                                                                     )
+                                                                     self.storage_account_blob_service_properties
                                                                     )
         except Exception as exc:
             self.fail("Failed to set Blob Service Properties: {0}".format(str(exc)))
