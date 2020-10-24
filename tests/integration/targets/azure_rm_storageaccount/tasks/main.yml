@@ -1,6 +1,7 @@
  - name: Create storage account name
    set_fact:
        storage_account: "sa{{ resource_group | hash('md5') | truncate(22, True, '') }}"
+       storage_account_versioning: "sa{{ resource_group | hash('md5') | truncate(20, True, '') }}ve"
 
  - name: Test invalid account name
    azure_rm_storageaccount:
@@ -38,6 +39,7 @@
             exposed_headers:
               - x-ms-meta-*
             max_age_in_seconds: 200
+       blob_retention_policy: 15
        tags:
            test: test
            galaxy: galaxy
@@ -56,6 +58,8 @@
        - output.changed
        - output.state.id is defined
        - output.state.blob_cors | length == 1
+       - output.state.delete_retention_policy.enabled is true
+       - output.state.delete_retention_policy.days == 15
        - not output.state.https_only
        - output.state.network_acls.bypass == "AzureServices"
        - output.state.network_acls.default_action == "Deny"
@@ -80,6 +84,7 @@
             exposed_headers:
               - x-ms-meta-*
             max_age_in_seconds: 200
+       blob_retention_policy: 15
        tags:
            test: test
            galaxy: galaxy
@@ -203,9 +208,31 @@
        that:
            - "output.storageaccounts | length > 0"
 
+ - name: Create new storage account StorageV2 for versioning
+   azure_rm_storageaccount:
+       resource_group: "{{ resource_group }}" 
+       name: "{{ storage_account_versioning }}"
+       account_type: Standard_LRS
+       kind: StorageV2
+       access_tier: Hot
+       blob_versioning: true 
+   register: output_versioning
+
+ - name: Assert versioning status succeeded
+   assert:
+     that:
+       - output_versioning.changed
+       - output_versioning.state.id is defined
+       - output_versioning.state.versioning is true
+
  - name: Delete acccount
    azure_rm_storageaccount:
        resource_group: "{{ resource_group }}" 
-       name: "{{ storage_account }}"
+       name: "{{ sa_delete }}"
        state: absent
        force_delete_nonempty: True
+   loop:
+     - "{{ storage_account }}"
+     - "{{ storage_account_versioning }}"
+   loop_control:
+     loop_var: sa_delete

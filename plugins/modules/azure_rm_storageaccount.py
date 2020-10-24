@@ -187,11 +187,15 @@ options:
                 required: true
     blob_retention_policy:
         description:
-            - XXX
+            - Indicates whether a retention policy is enabled for the storage service.
+            - The minimum value you can specify is 1, the largest value is 365 (one year).
+            - Set 0 days to disable retention policy.
         type: int
     blob_versioning:
         description:
-            - XXX
+            - Enables/disables versioning on blob storages.
+            - Only allowed when I(kind=StorageV2), I(kind=BlobStorage) or I(kind=BlockBlobStorage) is selected.
+            - Default value is C(False).
         type: bool
 
 extends_documentation_fragment:
@@ -297,6 +301,15 @@ state:
                     returned: always
                     type: bool
                     sample: true
+        delete_retention_policy:
+            description:
+                - Indicates whether a retention policy is enabled for the storage service.
+            returned: always
+            type: dict
+            sample: {
+                    "enabled": true,
+                    "days": 15
+                    }
         id:
             description:
                 - Resource ID.
@@ -410,6 +423,12 @@ state:
             returned: always
             type: str
             sample: "Microsoft.Storage/storageAccounts"
+        versioning:
+            description:
+                - State of versioning on blob storages.
+            returned: always
+            type: bool
+            sample: true
 '''
 
 try:
@@ -534,6 +553,9 @@ class AzureRMStorageAccount(AzureRMModuleBase):
            self.account_dict['provisioning_state'] != AZURE_SUCCESS_STATE:
             self.fail("Error: storage account {0} has not completed provisioning. State is {1}. Expecting state "
                       "to be {2}.".format(self.name, self.account_dict['provisioning_state'], AZURE_SUCCESS_STATE))
+        
+        if self.blob_versioning and self.kind not in ['StorageV2', 'BlobStorage', 'BlockBlobStorage']:
+            self.fail("Parameter error: Versioning only allowed when kind is 'StorageV2', 'BlobStorage' or 'BlockBlobStorage'")
 
         if self.account_dict is not None:
             self.results['state'] = self.account_dict
@@ -810,7 +832,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
                 cors_rules = self.storage_models.CorsRules(cors_rules=[self.storage_models.CorsRule(**x) for x in self.blob_cors])
                 self.storage_account_blob_service_properties.cors=cors_rules
 
-        if self.blob_retention_policy is not None and self.blob_retention_policy >= 0 and self.blob_retention_policy <= 365:
+        if self.blob_retention_policy is not None and self.account_dict['delete_retention_policy']['days'] != self.blob_retention_policy and self.blob_retention_policy >= 0 and self.blob_retention_policy <= 365:
             self.results['changed'] = True
             self.account_dict['delete_retention_policy']['enabled'] = True if self.blob_retention_policy != 0 else False
             self.account_dict['delete_retention_policy']['days'] = self.blob_retention_policy

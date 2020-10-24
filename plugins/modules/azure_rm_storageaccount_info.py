@@ -134,6 +134,32 @@ storageaccounts:
             returned: always
             type: str
             sample: Standard_ZRS
+        blob_cors:
+            description:
+                - Specifies CORS rules for the Blob service.
+            returned: When C(show_blob_cors) is set
+            type: list
+            contains:
+                allowed_origins:
+                    description:
+                        - A list of origin domains that will be allowed via CORS, or "*" to allow all domains.
+                    type: list
+                allowed_methods:
+                    description:
+                        - A list of HTTP methods that are allowed to be executed by the origin.
+                    type: list
+                max_age_in_seconds:
+                    description:
+                        - The number of seconds that the client/browser should cache a preflight response.
+                    type: int
+                exposed_headers:
+                    description:
+                        - A list of response headers to expose to CORS clients.
+                    type: list
+                allowed_headers:
+                    description:
+                        - A list of headers allowed to be part of the cross-origin request.
+                    type: list
         custom_domain:
             description:
                 - User domain assigned to the storage account.
@@ -153,6 +179,15 @@ storageaccounts:
                     returned: always
                     type: bool
                     sample: true
+        delete_retention_policy:
+            description:
+                - Indicates whether a retention policy is enabled for the storage service.
+            returned: When C(show_blob_cors) is set
+            type: dict
+            sample: {
+                    "enabled": true,
+                    "days": 15
+                    }
         kind:
             description:
                 - The kind of storage.
@@ -403,6 +438,12 @@ storageaccounts:
             returned: always
             type: dict
             sample: { "tag1": "abc" }
+        versioning:
+            description:
+                - State of versioning on blob storages.
+            returned: When C(show_blob_cors) is set
+            type: bool
+            sample: true
 '''
 
 try:
@@ -591,8 +632,10 @@ class AzureRMStorageAccountInfo(AzureRMModuleBase):
                 allowed_headers=to_native(x.allowed_headers)
             ) for x in blob_service_props.cors.cors_rules]
         if blob_service_props:
-            account_dict['delete_retention_policy']['enabled'] = blob_service_props.delete_retention_policy.enabled
-            account_dict['delete_retention_policy']['days'] = blob_service_props.delete_retention_policy.days
+            account_dict['delete_retention_policy'] = dict(enabled=blob_service_props.delete_retention_policy.enabled,
+                                                           days=blob_service_props.delete_retention_policy.days)
+            account_dict['versioning'] = blob_service_props.is_versioning_enabled
+
         return account_dict
 
     def format_endpoint_dict(self, name, key, endpoint, storagetype, protocol='https'):
