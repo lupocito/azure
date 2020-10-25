@@ -104,6 +104,12 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         file_properties = files_client.get_file_service_properties()
         queue_properties = queue_client.get_queue_service_properties()
 
+
+        self.account_dict['monitoring'] = dict(blob=dict(enabled=blob_properties.logging.retention_policy.enabled, days=blob_properties.logging.retention_policy.days),
+                                               queue=dict(enabled=queue_properties.logging.retention_policy.enabled, days=queue_properties.logging.retention_policy.days),
+                                               file=dict(enabled=file_properties.hour_metrics.retention_policy.enabled, days=file_properties.hour_metrics.retention_policy.days),
+                                               table=dict(enabled=table_properties.logging.retention_policy.enabled, days=table_properties.logging.retention_policy.days))
+
         enabled = False if self.enable_monitoring == 0 else True
         log = Logging(read=enabled, write=enabled, delete=enabled, retention_policy=RetentionPolicy(days=self.enable_monitoring, enabled=enabled))
         hour = Metrics(enabled=enabled, include_apis=enabled, retention_policy=RetentionPolicy(days=self.enable_monitoring, enabled=enabled))
@@ -114,23 +120,31 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             not self.compare_minute_metrics(blob_properties.minute_metrics, minutes)):
             self.results['changed'] = True
             blob_client.set_blob_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+            self.account_dict['monitoring']['blob']['enabled'] = enabled
+            self.account_dict['monitoring']['blob']['days'] = self.enable_monitoring if self.enable_monitoring != 0 else None
 
         if (not self.compare_logging(table_properties.logging, log) and 
             not self.compare_hour_metrics(table_properties.hour_metrics, hour) and 
             not self.compare_minute_metrics(table_properties.minute_metrics, minutes)):
             self.results['changed'] = True
             table_client.set_table_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+            self.account_dict['monitoring']['table']['enabled'] = enabled
+            self.account_dict['monitoring']['table']['days'] = self.enable_monitoring if self.enable_monitoring != 0 else None
 
         if (not self.compare_hour_metrics(file_properties.hour_metrics, hour) and 
             not self.compare_minute_metrics(file_properties.minute_metrics, minutes)):
             self.results['changed'] = True
             files_client.set_file_service_properties(hour_metrics=hour, minute_metrics=minutes)
+            self.account_dict['monitoring']['file']['enabled'] = enabled
+            self.account_dict['monitoring']['file']['days'] = self.enable_monitoring if self.enable_monitoring != 0 else None
 
         if (not self.compare_logging(queue_properties.logging, log) and 
             not self.compare_hour_metrics(queue_properties.hour_metrics, hour) and 
             not self.compare_minute_metrics(queue_properties.minute_metrics, minutes)):
             self.results['changed'] = True
             queue_client.set_queue_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+            self.account_dict['monitoring']['queue']['enabled'] = enabled
+            self.account_dict['monitoring']['queue']['days'] = self.enable_monitoring if self.enable_monitoring != 0 else None
 
     def compare_logging(self, log1 ,log2):
         if (log1.delete == log2.delete and 
@@ -180,6 +194,10 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             resource_group=self.resource_group
         )
         account_dict['private_endpoint_connection'] = list()
+        account_dict['monitoring'] = dict(blob=dict(enabled=None, days=None),
+                                          queue=dict(enabled=None, days=None),
+                                          file=dict(enabled=None, days=None),
+                                          table=dict(enabled=None, days=None))
 
         return account_dict
         
