@@ -492,17 +492,12 @@ class AzureRMStorageAccount(AzureRMModuleBase):
     def private_endpoint_connections(self):
         list_pec = self.storage_client.private_endpoint_connections.list(self.resource_group, self.name)
 
-        try:
-            list_pec.next()
-
-            for pec in list_pec.current_page:
-                if pec.private_link_service_connection_state.status == 'Pending':
-                    self.results['changed'] = True
-                    self.account_dict['private_endpoint_connection'] += [pec.name]
-                    pec.private_link_service_connection_state.status = 'Approved'
-                    self.storage_client.private_endpoint_connections.put(self.resource_group, self.name, pec.name, pec)
-        except StopIteration:
-            self.log("No more pages")
+        for pec in list_pec:
+            if pec.private_link_service_connection_state.status == 'Pending':
+                self.results['changed'] = True
+                self.account_dict['private_endpoint_connection'] += [pec.name]
+                pec.private_link_service_connection_state.status = 'Approved'
+                self.storage_client.private_endpoint_connections.put(self.resource_group, self.name, pec.name, pec)
 
     def get_account(self):
         self.log('Get properties for account {0}'.format(self.name))
