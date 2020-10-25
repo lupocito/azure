@@ -35,7 +35,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
             location=dict(type='str'),
             name=dict(type='str', required=True),
             resource_group=dict(required=True, type='str', aliases=['resource_group_name']),
-            approve_private_endpoint_connections=dict(type='bool', default=False)
+            approve_private_endpoint_connections=dict(type='bool', default=False),
+            enable_monitoring=dict(type='int')
         )
 
         self.results = dict(
@@ -49,6 +50,7 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         self.location = None
         self.approve_private_endpoint_connections = None
         self.private_endpoint_connection = list()
+        self.enable_monitoring = None
 
         super(AzureRMStorageAccount, self).__init__(self.module_arg_spec,
                                                     supports_check_mode=True)
@@ -71,22 +73,8 @@ class AzureRMStorageAccount(AzureRMModuleBase):
         else:
             self.results['state'] = dict()
 
-        account_keys = self.storage_client.storage_accounts.list_keys(self.resource_group, self.name)
-        blob_client = self.get_blob_client(self.resource_group, self.name, 'block')
-        table_client = TableService(self.name, account_keys.keys[0].value, sas_token=None)
-        files_client = FileService(self.name, account_keys.keys[0].value, sas_token=None)
-        queue_client = QueueService(self.name, account_keys.keys[0].value, sas_token=None)
-
-        # properties = files_client.get_file_service_properties()
-        # properties = queue_client.get_queue_service_properties()
-        log = Logging(read=True, write=True, delete=True, retention_policy=RetentionPolicy(days=15, enabled=True))
-        hour = Metrics(enabled=True, include_apis=True, retention_policy=RetentionPolicy(days=15, enabled=True))
-        minutes = Metrics(enabled=True, include_apis=True, retention_policy=RetentionPolicy(days=15, enabled=True))
-
-        blob_client.set_blob_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
-        table_client.set_table_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
-        files_client.set_file_service_properties(hour_metrics=hour, minute_metrics=minutes)
-        queue_client.set_queue_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+        if self.enable_monitoring is not None:
+            self.enable_monitoring_function()
 
         if self.approve_private_endpoint_connections:
             self.private_endpoint_connections()
@@ -102,6 +90,72 @@ class AzureRMStorageAccount(AzureRMModuleBase):
                 self.account_dict['private_endpoint_connection'] += [pec.name]
                 pec.private_link_service_connection_state.status = 'Approved'
                 self.storage_client.private_endpoint_connections.put(self.resource_group, self.name, pec.name, pec)
+
+    def enable_monitoring_function(self):
+        account_keys = self.storage_client.storage_accounts.list_keys(self.resource_group, self.name)
+
+        blob_client = self.get_blob_client(self.resource_group, self.name)
+        table_client = TableService(self.name, account_keys.keys[0].value, sas_token=None)
+        files_client = FileService(self.name, account_keys.keys[0].value, sas_token=None)
+        queue_client = QueueService(self.name, account_keys.keys[0].value, sas_token=None)
+
+        blob_properties = blob_client.get_blob_service_properties()
+        table_properties = table_client.get_table_service_properties()
+        file_properties = files_client.get_file_service_properties()
+        queue_properties = queue_client.get_queue_service_properties()
+
+        enabled = False if self.enable_monitoring == 0 else True
+        log = Logging(read=enabled, write=enabled, delete=enabled, retention_policy=RetentionPolicy(days=self.enable_monitoring, enabled=enabled))
+        hour = Metrics(enabled=enabled, include_apis=enabled, retention_policy=RetentionPolicy(days=self.enable_monitoring, enabled=enabled))
+        minutes = Metrics(enabled=enabled, include_apis=enabled, retention_policy=RetentionPolicy(days=self.enable_monitoring, enabled=enabled))
+
+        if (not self.compare_logging(blob_properties.logging, log) and 
+            not self.compare_hour_metrics(blob_properties.hour_metrics, hour) and 
+            not self.compare_minute_metrics(blob_properties.minute_metrics, minutes)):
+            self.results['changed'] = True
+            blob_client.set_blob_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+
+        if (not self.compare_logging(table_properties.logging, log) and 
+            not self.compare_hour_metrics(table_properties.hour_metrics, hour) and 
+            not self.compare_minute_metrics(table_properties.minute_metrics, minutes)):
+            self.results['changed'] = True
+            table_client.set_table_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+
+        if (not self.compare_hour_metrics(file_properties.hour_metrics, hour) and 
+            not self.compare_minute_metrics(file_properties.minute_metrics, minutes)):
+            self.results['changed'] = True
+            files_client.set_file_service_properties(hour_metrics=hour, minute_metrics=minutes)
+
+        if (not self.compare_logging(queue_properties.logging, log) and 
+            not self.compare_hour_metrics(queue_properties.hour_metrics, hour) and 
+            not self.compare_minute_metrics(queue_properties.minute_metrics, minutes)):
+            self.results['changed'] = True
+            queue_client.set_queue_service_properties(logging=log, hour_metrics=hour, minute_metrics=minutes)
+
+    def compare_logging(self, log1 ,log2):
+        if (log1.delete == log2.delete and 
+            log1.read == log2.read and 
+            log1.write == log2.write and 
+            log1.retention_policy.enabled == log2.retention_policy.enabled and
+            log1.retention_policy.days in [log2.retention_policy.days, None]):
+            return True
+        return False
+
+    def compare_hour_metrics(self, hour1 ,hour2):
+        if (hour1.enabled == hour2.enabled and 
+            hour1.include_apis in [hour2.include_apis, None] and
+            hour1.retention_policy.enabled == hour2.retention_policy.enabled and
+            hour1.retention_policy.days in [hour2.retention_policy.days, None]):
+            return True
+        return False
+
+    def compare_minute_metrics(self, minute1 ,minute2):
+        if (minute1.enabled == minute2.enabled and 
+            minute1.include_apis in [minute2.include_apis, None] and
+            minute1.retention_policy.enabled == minute2.retention_policy.enabled and
+            minute1.retention_policy.days in [minute2.retention_policy.days, None]):
+            return True
+        return False
 
     def get_account(self):
         self.log('Get properties for account {0}'.format(self.name))
